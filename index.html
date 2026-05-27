@@ -77,6 +77,7 @@ header h1 { font-size: 18px; font-weight: 600; }
 <select id="f-mode"><option value="random">随机刷题</option><option value="year-desc" selected>按年份(近→远)</option><option value="frequency">按高频考点</option></select>
 <button onclick="startQuiz()">开始刷题</button>
 <button class="secondary" onclick="startWrongQuiz()">刷错题</button>
+<button class="secondary" onclick="resetProgress()">重置进度</button>
 </div>
 <div id="quiz-area"></div>
 </div>
@@ -87,7 +88,8 @@ let DATA = [];
 
 let pool = [], current = null, answered = false, userAnswer = [];
 let poolTotal = 0, poolDone = 0;
-const store = JSON.parse(localStorage.getItem('quiz_store') || '{"done":0,"correct":0,"wrongs":{}}');
+const store = JSON.parse(localStorage.getItem('quiz_store') || '{"done":0,"correct":0,"wrongs":{},"doneIds":{}}');
+if (!store.doneIds) store.doneIds = {};
 function save() { localStorage.setItem('quiz_store', JSON.stringify(store)); }
 
 // Init year filter
@@ -128,13 +130,13 @@ function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Mat
 
 function startQuiz() {
   const mode = document.getElementById('f-mode').value;
-  let qs = getFiltered();
+  let qs = getFiltered().filter(q => !store.doneIds[q.id]);
+  if (!qs.length) { qs = getFiltered(); } // All done, restart
   if (mode === 'random') {
     pool = shuffle([...qs]);
   } else if (mode === 'year-desc') {
     pool = [...qs].sort((a, b) => (a.year || 0) - (b.year || 0) || a.number - b.number);
   } else if (mode === 'frequency') {
-    // Sort by how many times similar questions appear (more = higher priority)
     pool = [...qs].sort((a, b) => {
       const fa = FREQ_KEYWORDS[(a.question || '').slice(0, 30)] || 0;
       const fb = FREQ_KEYWORDS[(b.question || '').slice(0, 30)] || 0;
@@ -221,6 +223,7 @@ function checkAnswer() {
 
   store.done++;
   poolDone++;
+  store.doneIds[q.id] = true;
   if (isCorrect) { store.correct++; delete store.wrongs[q.id]; }
   else { store.wrongs[q.id] = true; }
   save();
@@ -271,6 +274,7 @@ function renderWrongList() {
 }
 
 function clearWrongs() { if(confirm('确定清空错题本？')) { store.wrongs = {}; save(); updateStats(); renderWrongList(); } }
+function resetProgress() { if(confirm('确定重置所有刷题进度？')) { store.done=0; store.correct=0; store.wrongs={}; store.doneIds={}; save(); updateStats(); startQuiz(); } }
 
 fetch('data.json').then(r=>r.json()).then(d=>{DATA=d;poolTotal=DATA.length;updateStats();startQuiz();});
 </script>
