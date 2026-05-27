@@ -66,7 +66,8 @@ header h1 { font-size: 18px; font-weight: 600; }
 <div class="container">
 <div class="tab-bar">
 <button class="active" onclick="switchTab('quiz')">刷题</button>
-<button onclick="switchTab('wrong')">错题本 (<span id="wrong-count">0</span>)</button>
+<button onclick="switchTab('wrong')">错题 (<span id="wrong-count">0</span>)</button>
+<button onclick="switchTab('correct')">已对 (<span id="correct-count">0</span>)</button>
 </div>
 <div id="tab-quiz">
 <div class="filters">
@@ -82,14 +83,16 @@ header h1 { font-size: 18px; font-weight: 600; }
 <div id="quiz-area"></div>
 </div>
 <div id="tab-wrong" class="hidden"></div>
+<div id="tab-correct" class="hidden"></div>
 </div>
 <script>
 let DATA = [];
 
 let pool = [], current = null, answered = false, userAnswer = [];
 let poolTotal = 0, poolDone = 0;
-const store = JSON.parse(localStorage.getItem('quiz_store') || '{"done":0,"correct":0,"wrongs":{},"doneIds":{}}');
+const store = JSON.parse(localStorage.getItem('quiz_store') || '{"done":0,"correct":0,"wrongs":{},"doneIds":{},"corrects":{}}');
 if (!store.doneIds) store.doneIds = {};
+if (!store.corrects) store.corrects = {};
 function save() { localStorage.setItem('quiz_store', JSON.stringify(store)); }
 
 // Init year filter
@@ -110,6 +113,7 @@ function updateStats() {
   document.getElementById('stat-correct').textContent = '正确: ' + store.correct;
   document.getElementById('stat-rate').textContent = '正确率: ' + (store.done ? Math.round(store.correct/store.done*100) + '%' : '--');
   document.getElementById('wrong-count').textContent = Object.keys(store.wrongs).length;
+  document.getElementById('correct-count').textContent = Object.keys(store.corrects).length;
   document.getElementById('progress-fill').style.width = (poolTotal ? Math.min(poolDone/poolTotal*100, 100) : 0) + '%';
 }
 
@@ -224,8 +228,8 @@ function checkAnswer() {
   store.done++;
   poolDone++;
   store.doneIds[q.id] = true;
-  if (isCorrect) { store.correct++; delete store.wrongs[q.id]; }
-  else { store.wrongs[q.id] = true; }
+  if (isCorrect) { store.correct++; delete store.wrongs[q.id]; store.corrects[q.id] = true; }
+  else { store.wrongs[q.id] = true; delete store.corrects[q.id]; }
   save();
   updateStats();
 
@@ -254,24 +258,42 @@ function checkAnswer() {
 }
 
 function switchTab(tab) {
-  document.querySelectorAll('.tab-bar button').forEach((b, i) => b.classList.toggle('active', (i === 0 && tab === 'quiz') || (i === 1 && tab === 'wrong')));
+  document.querySelectorAll('.tab-bar button').forEach((b, i) => b.classList.toggle('active', (i===0&&tab==='quiz')||(i===1&&tab==='wrong')||(i===2&&tab==='correct')));
   document.getElementById('tab-quiz').classList.toggle('hidden', tab !== 'quiz');
   document.getElementById('tab-wrong').classList.toggle('hidden', tab !== 'wrong');
-  if (tab === 'wrong') renderWrongList();
+  document.getElementById('tab-correct').classList.toggle('hidden', tab !== 'correct');
+  if (tab === 'wrong') renderList('tab-wrong', store.wrongs, '错题');
+  if (tab === 'correct') renderList('tab-correct', store.corrects, '正确题');
 }
 
-function renderWrongList() {
-  const ids = Object.keys(store.wrongs).map(Number);
-  const wrongs = DATA.filter(q => ids.includes(q.id));
-  if (!wrongs.length) { document.getElementById('tab-wrong').innerHTML = '<div class="card"><p>没有错题，继续保持！</p></div>'; return; }
-  let html = `<div class="filters"><button onclick="startWrongQuiz()">刷错题 (${wrongs.length}题)</button><button class="danger" onclick="clearWrongs()">清空错题本</button></div>`;
-  wrongs.forEach(q => {
-    html += `<div class="card"><div class="card-meta"><span>${q.year}年</span><span>${q.subject}</span><span>${q.section}</span></div>`;
-    html += `<div class="question-text" style="font-size:14px;">${q.question}</div>`;
-    html += `<div style="font-size:13px;color:#34a853;margin-top:8px;">答案: ${q.answer}</div></div>`;
-  });
-  document.getElementById('tab-wrong').innerHTML = html;
+function renderQuestionCard(q) {
+  let h = `<div class="card"><div class="card-meta"><span>${q.source}</span>${q.year?`<span>${q.year}年</span>`:''}<span>${q.subject}</span><span>${q.section}</span><span>第${q.number}题</span></div>`;
+  h += `<div class="question-text" style="font-size:14px;">${q.question}</div>`;
+  if (q.options && Object.keys(q.options).length) {
+    h += `<div class="options" style="pointer-events:none;">`;
+    for (const [k,v] of Object.entries(q.options)) {
+      const isAns = q.answer.includes(k);
+      h += `<div class="option${isAns?' correct':''}" style="padding:8px 12px;font-size:13px;">${k}. ${v}</div>`;
+    }
+    h += `</div>`;
+  }
+  h += `<div style="margin-top:10px;font-size:13px;font-weight:600;color:#1a73e8;">答案: ${q.answer}</div>`;
+  if (q.explanation) h += `<div style="margin-top:6px;font-size:13px;color:#555;">${q.explanation}</div>`;
+  h += `</div>`;
+  return h;
 }
+
+function renderList(containerId, idMap, label) {
+  const ids = Object.keys(idMap).map(Number);
+  const items = DATA.filter(q => ids.includes(q.id));
+  const el = document.getElementById(containerId);
+  if (!items.length) { el.innerHTML = `<div class="card"><p>暂无${label}</p></div>`; return; }
+  let html = `<div style="padding:8px 0;font-size:13px;color:#666;">${label}: ${items.length}道</div>`;
+  items.forEach(q => { html += renderQuestionCard(q); });
+  el.innerHTML = html;
+}
+
+function renderWrongList() { renderList('tab-wrong', store.wrongs, '错题'); }
 
 function clearWrongs() { if(confirm('确定清空错题本？')) { store.wrongs = {}; save(); updateStats(); renderWrongList(); } }
 function resetProgress() { if(confirm('确定重置所有刷题进度？')) { store.done=0; store.correct=0; store.wrongs={}; store.doneIds={}; save(); updateStats(); startQuiz(); } }
